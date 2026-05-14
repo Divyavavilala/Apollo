@@ -2,27 +2,36 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import axios from 'axios';  // ← ADD THIS
+import Groq from 'groq-sdk';
+
+import userRoutes from './routes/users.js';
+import chatRoutes from './routes/chats.js';
 
 dotenv.config();
 
 const app = express();
 const DEFAULT_PORT = parseInt(process.env.PORT || '5000', 10);
 
-// ← ADD THIS: Python inference server URL
-const INFERENCE_SERVER_URL = 'http://localhost:8000';
+// Groq Client
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000'],
-  credentials: true
+  origin: '*',
+  credentials: true,
 }));
+
 app.use(express.json());
 
 // MongoDB Connection
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/cura-app');
+    const conn = await mongoose.connect(
+      process.env.MONGODB_URI || 'mongodb://localhost:27017/cura-app'
+    );
+
     console.log(`MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
     console.error('MongoDB connection error:', error);
@@ -32,97 +41,88 @@ const connectDB = async () => {
 
 connectDB();
 
-// Basic route
+// Root Route
 app.get('/', (req, res) => {
-  res.json({ message: 'Cura API Server is running!' });
+  res.json({
+    message: 'Cura API Server Running with Groq',
+    model: 'llama-3.3-70b-versatile',
+  });
 });
 
-// Health check for inference server
-app.get('/api/inference/health', async (req, res) => {
-  try {
-    const response = await axios.get(`${INFERENCE_SERVER_URL}/health`, {
-      timeout: 5000
-    });
-    res.json(response.data);
-  } catch (error) {
-    res.status(503).json({ 
-      status: 'unhealthy', 
-      message: 'Inference server is not available',
-      error: error.message 
-    });
-  }
-});
-
-// Chat endpoint - proxies to Python inference server
+// AI CHAT ENDPOINT
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message, language = 'EN', memory = true } = req.body;
-    
+    const { message } = req.body;
+
     if (!message || message.trim() === '') {
-      return res.status(400).json({ error: 'Message is required' });
+      return res.status(400).json({
+        error: 'Message is required',
+      });
     }
 
-    console.log(`📤 Forwarding to Python: ${message.substring(0, 50)}...`);
+    console.log(`🤖 User Message: ${message}`);
 
-    // ← FIXED: Call Python inference server on /chat endpoint
-    const response = await axios.post(
-      `${INFERENCE_SERVER_URL}/chat`,  // ← FIXED PATH
-      { message, language, memory },
-      { 
-        timeout: 90000, // ← 90 seconds for slow CPU inference
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    // GROQ API CALL
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
 
-    console.log('✅ Got response from Python inference server');
-    res.json(response.data);
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are Cura AI, a helpful multilingual medical assistant.',
+        },
+        {
+          role: 'user',
+          content: message,
+        },
+      ],
 
+      temperature: 0.7,
+      max_tokens: 1024,
+    });
+
+    const reply = completion.choices[0]?.message?.content || 'No response generated';
+
+    console.log('✅ Groq Response Generated');
+
+    res.json({
+      reply,
+      confidence: 0.99,
+    });
   } catch (error) {
-    console.error('❌ Chat API error:', error.message);
-    
-    if (error.code === 'ECONNREFUSED') {
-      return res.status(503).json({ 
-        error: 'AI service unavailable. Make sure Python inference server is running on port 8000.' 
-      });
-    }
+    console.error('❌ Groq API Error:', error);
 
-    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-      return res.status(504).json({ 
-        error: 'Request timeout. CPU inference is slow, please wait longer.' 
-      });
-    }
-    
-    res.status(500).json({ 
-      error: 'Failed to process message',
-      details: error.response?.data || error.message 
+    res.status(500).json({
+      error: 'Failed to generate AI response',
+      details: error.message,
     });
   }
 });
 
-// Import and use routes
-import userRoutes from './routes/users.js';
-import chatRoutes from './routes/chats.js';
-
+// Routes
 app.use('/api/users', userRoutes);
 app.use('/api/chats', chatRoutes);
 
-// Error handling middleware
+// Error Middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
+  res.status(500).json({
+    message: 'Something went wrong!',
+  });
 });
 
-// Start server
+// Start Server
 const startServer = (port) => {
   const server = app.listen(port, () => {
-    console.log(`🚀 Node backend running on http://localhost:${port}`);
-    console.log(`📡 Proxying AI chat to: ${INFERENCE_SERVER_URL}`);
+    console.log(`🚀 Server running on http://localhost:${port}`);
+    console.log('⚡ Powered by Groq API');
   });
 
   server.on('error', (err) => {
     if (err && err.code === 'EADDRINUSE') {
       const nextPort = port + 1;
-      console.warn(`Port ${port} is in use. Retrying on port ${nextPort}...`);
+      console.warn(`Port ${port} busy. Retrying on ${nextPort}`);
       startServer(nextPort);
     } else {
       throw err;

@@ -72,7 +72,7 @@ const Chatbot: React.FC = () => {
 
     try {
       // Use relative path - Vite will proxy to http://localhost:5000/api/chat
-      const response = await fetch('/ai/chat', {  // Changed from /api/chat
+      const response = await fetch('/api/chat', {  // Changed from /api/chat
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',

@@ -62,7 +62,7 @@ async def load_model():
         logger.info(f"📥 Loading base model: {BASE}")
         base = AutoModelForCausalLM.from_pretrained(
             BASE,
-            dtype=torch.float32,
+            torch_dtype=torch.float32,
             trust_remote_code=True,
             low_cpu_mem_usage=True,
         )
@@ -99,7 +99,7 @@ async def health_check():
         "adapter_path": "./model"
     }
 
-@app.post("/ai/chat", response_model=ChatResponse)  # ← FIXED: Simple /chat endpoint
+@app.post("/api/chat", response_model=ChatResponse)  # ← FIXED: Simple /chat endpoint
 async def chat(request: ChatRequest):
     """Generate response using YOUR fine-tuned model"""
     global model, tokenizer
